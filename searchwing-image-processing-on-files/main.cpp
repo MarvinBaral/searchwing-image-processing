@@ -16,8 +16,9 @@ using namespace cv;
 
 const string WINDOW_NAME = "Simple Blob Detection";
 cv::Mat global_image;
-int minThreshold = 20;
-int maxThreshold = 200;
+int medianBlurValue = 1;
+//int minThreshold = 20;
+//int maxThreshold = 200;
 int minDistBetweenBlobs = 100;
 int blobColorSlider = 255;
 int minAreaSlider = 10;
@@ -43,10 +44,10 @@ void getFiles(QString path, std::vector<QString> &images, std::vector<QString> &
 
 Mat blobDetection(Mat img) {
 	cv::SimpleBlobDetector::Params params;
-	params.minThreshold = minThreshold;
-	params.maxThreshold = maxThreshold;
+//	params.minThreshold = minThreshold;
+//	params.maxThreshold = maxThreshold;
 	params.minDistBetweenBlobs = minDistBetweenBlobs;
-	params.filterByColor = true;
+	params.filterByColor = false;
 	params.blobColor = blobColorSlider;
 	params.filterByArea = true;
 	params.minArea = minAreaSlider;
@@ -70,8 +71,10 @@ Mat blobDetection(Mat img) {
 }
 
 void update() {
-	cv::imshow(WINDOW_NAME, blobDetection(global_image));
-	cout << blobColorSlider << ", " << minAreaSlider << ", " << maxAreaSlider << endl;
+	cv::Mat showed_image;
+	cv::medianBlur(global_image, showed_image, medianBlurValue * 2 + 1);
+	cv::imshow(WINDOW_NAME, blobDetection(showed_image));
+	cout << "updated" << endl;
 }
 
 void sliderCallback(int value, void*) {
@@ -89,8 +92,9 @@ int main(int argc, char *argv[])
 		std::vector<QString> videos;
 		getFiles(QString().fromStdString(image_path), images, videos);
 		cv::namedWindow(WINDOW_NAME, cv::WINDOW_NORMAL);
-		cv::createTrackbar("minThreshold", WINDOW_NAME, &minThreshold, 1000, sliderCallback);
-		cv::createTrackbar("maxThreshold", WINDOW_NAME, &maxThreshold, 1000, sliderCallback);
+		cv::createTrackbar("medianBlurValue", WINDOW_NAME, &medianBlurValue, 180, sliderCallback);
+//		cv::createTrackbar("minThreshold", WINDOW_NAME, &minThreshold, 1000, sliderCallback);
+//		cv::createTrackbar("maxThreshold", WINDOW_NAME, &maxThreshold, 1000, sliderCallback);
 		cv::createTrackbar("minDistBetweenBlobs", WINDOW_NAME, &minDistBetweenBlobs, 10000, sliderCallback);
 		cv::createTrackbar("blobColor", WINDOW_NAME, &blobColorSlider, 255, sliderCallback);
 		cv::createTrackbar("minArea", WINDOW_NAME, &minAreaSlider, 100000, sliderCallback);
