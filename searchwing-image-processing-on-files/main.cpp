@@ -47,7 +47,7 @@ Mat blobDetection(Mat img) {
 //	params.minThreshold = minThreshold;
 //	params.maxThreshold = maxThreshold;
 	params.minDistBetweenBlobs = minDistBetweenBlobs;
-	params.filterByColor = false;
+	params.filterByColor = true;
 	params.blobColor = blobColorSlider;
 	params.filterByArea = true;
 	params.minArea = minAreaSlider;
