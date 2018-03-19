@@ -12,23 +12,13 @@ using namespace cv;
  * cut pictures in rectangles out and save them with an ID. For Videos: all cutten frames shall have same size and will be recombined in a video
  * (optional: use video to get a very good image)
  *
+ * https://stackoverflow.com/questions/44633740/opencv-simple-blob-detection-getting-some-undetected-blobs
+ *
 */
 
-const string WINDOW_NAME = "Simple Blob Detection";
+const string WINDOW_NAME = "Contour Detection";
+const string DEBUG_WINDOW_NAME = "Debug";
 cv::Mat global_image;
-int medianBlurValue = 1;
-//int minThreshold = 20;
-//int maxThreshold = 200;
-int minDistBetweenBlobs = 100;
-int blobColorSlider = 255;
-int minAreaSlider = 10;
-int maxAreaSlider = 6000000;
-int minCircularity = 10;
-int maxCircularity = 90;
-int minConvexity = 0;
-int maxConvexity = 100;
-int minInertia = 0;
-int maxInertia = 100;
 
 void getFiles(QString path, std::vector<QString> &images, std::vector<QString> &videos) { //!!! Hard string comparison with jpg, jpeg and mp4 !!!
 	QDirIterator iterator(path, QDirIterator::Subdirectories);
@@ -42,38 +32,42 @@ void getFiles(QString path, std::vector<QString> &images, std::vector<QString> &
 	}
 }
 
-Mat blobDetection(Mat img) {
-	cv::SimpleBlobDetector::Params params;
-//	params.minThreshold = minThreshold;
-//	params.maxThreshold = maxThreshold;
-	params.minDistBetweenBlobs = minDistBetweenBlobs;
-	params.filterByColor = true;
-	params.blobColor = blobColorSlider;
-	params.filterByArea = true;
-	params.minArea = minAreaSlider;
-	params.maxArea = maxAreaSlider;
-	params.filterByCircularity = true;
-	params.minCircularity = minCircularity / 100.f;
-	params.maxCircularity = maxCircularity / 100.f;
-	params.filterByConvexity = true;
-	params.minConvexity = minConvexity / 100.f;
-	params.maxConvexity = maxConvexity / 100.f;
-	params.filterByInertia = true;
-	params.minInertiaRatio = minInertia / 100.f;
-	params.maxInertiaRatio = maxInertia / 100.f;
-	Ptr<SimpleBlobDetector> detector = SimpleBlobDetector::create(params); //This is OpenCV3 Style, OpenCV2 would be: SimpleBlobDetector detector; detector.detect(...);
-	vector<KeyPoint> keypoints;
-	detector->detect(img, keypoints);
-	Mat img_with_keypoints;
-	drawKeypoints(img, keypoints, img_with_keypoints, Scalar(0,0,255), DrawMatchesFlags::DRAW_RICH_KEYPOINTS);
+Mat contourDetection(Mat img) {
+	Mat working_hsv_image;
+	cv::cvtColor(img, working_hsv_image, CV_BGR2HSV);
+//	cv::medianBlur(working_hsv_image, working_hsv_image, 45);
+	std::vector<short int> lowerBounds = {90, 0, 0};
+	std::vector<short int> upperBounds = {130, 255, 255};
+	cv::inRange(working_hsv_image, lowerBounds, upperBounds, working_hsv_image);
+	cv::bitwise_not(working_hsv_image, working_hsv_image);
 
-	return img_with_keypoints;
+	std::vector<std::vector<cv::Point>> contours;
+	cv::findContours(working_hsv_image, contours, CV_RETR_EXTERNAL, CV_CHAIN_APPROX_NONE);
+	cv::Scalar color = cv::Scalar(0, 255, 0);
+	for (int i = 0; i < contours.size(); i++) {
+		cv::drawContours(img, contours, i, color);
+	}
+	//display longest contour
+	cv::Scalar color2 = cv::Scalar(0, 0, 255);
+	int maxContourLength = 0;
+	int longestContour = 0;
+	int i = 0;
+	for (; i < contours.size(); i++) {
+		if ((int) contours[i].size() > maxContourLength) {
+			maxContourLength = std::max(maxContourLength, (int) contours[i].size());
+			longestContour = i;
+		}
+	}
+//	cv::drawContours(img, contours, longestContour, color2);
+	cv::rectangle(img, cv::boundingRect(contours[longestContour]), color2, 10);
+
+	cout << "number of contours " << contours.size() << endl;
+	imshow(DEBUG_WINDOW_NAME, working_hsv_image);
+	return img;
 }
 
 void update() {
-	cv::Mat showed_image;
-	cv::medianBlur(global_image, showed_image, medianBlurValue * 2 + 1);
-	cv::imshow(WINDOW_NAME, blobDetection(showed_image));
+	cv::imshow(WINDOW_NAME, contourDetection(global_image));
 	cout << "updated" << endl;
 }
 
@@ -92,19 +86,8 @@ int main(int argc, char *argv[])
 		std::vector<QString> videos;
 		getFiles(QString().fromStdString(image_path), images, videos);
 		cv::namedWindow(WINDOW_NAME, cv::WINDOW_NORMAL);
-		cv::createTrackbar("medianBlurValue", WINDOW_NAME, &medianBlurValue, 180, sliderCallback);
-//		cv::createTrackbar("minThreshold", WINDOW_NAME, &minThreshold, 1000, sliderCallback);
-//		cv::createTrackbar("maxThreshold", WINDOW_NAME, &maxThreshold, 1000, sliderCallback);
-		cv::createTrackbar("minDistBetweenBlobs", WINDOW_NAME, &minDistBetweenBlobs, 10000, sliderCallback);
-		cv::createTrackbar("blobColor", WINDOW_NAME, &blobColorSlider, 255, sliderCallback);
-		cv::createTrackbar("minArea", WINDOW_NAME, &minAreaSlider, 100000, sliderCallback);
-		cv::createTrackbar("maxArea", WINDOW_NAME, &maxAreaSlider, 12000000, sliderCallback);
-		cv::createTrackbar("minCircularity", WINDOW_NAME, &minCircularity, 100, sliderCallback);
-		cv::createTrackbar("maxCircularity", WINDOW_NAME, &maxCircularity, 100, sliderCallback);
-		cv::createTrackbar("minConvexity", WINDOW_NAME, &minConvexity, 100, sliderCallback);
-		cv::createTrackbar("maxConvexity", WINDOW_NAME, &maxConvexity, 100, sliderCallback);
-		cv::createTrackbar("minInertia", WINDOW_NAME, &minInertia, 100, sliderCallback);
-		cv::createTrackbar("maxInertia", WINDOW_NAME, &maxInertia, 100, sliderCallback);
+		cv::namedWindow(DEBUG_WINDOW_NAME, cv::WINDOW_NORMAL);
+
 		unsigned int i = 0;
 		global_image = cv::imread(images[i].toStdString()); //options like cv::IMREAD_GRAYSCALE possible
 		cout << images[i].toStdString() << endl;
