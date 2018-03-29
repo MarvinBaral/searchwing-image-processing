@@ -8,7 +8,6 @@ using namespace std;
 using namespace cv;
 
 /* TODO:
- * make blob detection on each picture/ frame and draw a rectangle around them
  * cut pictures in rectangles out and save them with an ID. For Videos: all cutten frames shall have same size and will be recombined in a video
  * (optional: use video to get a very good image)
  *
@@ -16,10 +15,25 @@ using namespace cv;
  *
 */
 
+/* Issues:
+ * sky or optical effects on water are detected and have huge contours
+ * -> lot of big effects come from Moonbirds cockpit glass -> might not be an issue with the Rpi3-Camera facing air directly
+ * -> check diversity of image and remove the ones with low diversity
+ * -> actively remove sky
+ * especially bigger ships are only detected in parts
+ * -> done by merging overlapping rects, but could be improved (merging overlapping rects after merging overlapping rects???)
+ * when sea is very reflective, no ships are detected
+ * two nearby ships are merged together - wanted or not wanted? - I think this is ok since the images are used to be shown to humans to decide whether these need to be saved or not and not for ship counting
+*/
+
 const string WINDOW_NAME = "Contour Detection";
-const string DEBUG_WINDOW_NAME = "Debug";
+const string DEBUG_WINDOW_NAME = "Thresholded Image";
+const string CUTTEN_FRAME_WINDOW_NAME = "Cutten Frame";
 cv::Mat global_image;
-unsigned short num_showed_contours = 1;
+int num_showed_contours = 100;
+int water_min_hue = 90;
+int water_max_hue = 130;
+bool display_cutten_frame = true;
 
 void getFiles(QString path, std::vector<QString> &images, std::vector<QString> &videos) { //!!! Hard string comparison with jpg, jpeg and mp4 !!!
 	QDirIterator iterator(path, QDirIterator::Subdirectories);
@@ -39,57 +53,91 @@ bool compareContourAreas ( std::vector<cv::Point> contour1, std::vector<cv::Poin
 	double j = fabs( contourArea(cv::Mat(contour2)) );
 	return ( i < j );
 }
-//bool compareContourSize ( std::vector<cv::Point> contour1, std::vector<cv::Point> contour2 ) {
-//	int i = contour1.size();
-//	int j = contour2.size();
-//	return ( i < j );
-//}
 
-Mat contourDetection(Mat img) {
-	cv::Scalar green = cv::Scalar(0, 255, 0);
-	cv::Scalar red = cv::Scalar(0, 0, 255);
-	Mat working_hsv_image;
-	Mat displayed_image;
-	img.copyTo(displayed_image);
-
-	//thresholding
-	cv::cvtColor(img, working_hsv_image, CV_BGR2HSV);
-//	cv::medianBlur(working_hsv_image, working_hsv_image, 45);
-	std::vector<short int> lowerBounds = {90, 0, 0};
-	std::vector<short int> upperBounds = {130, 255, 255};
+void getRectsByThresholding(std::vector<cv::Rect>& rects, Mat& working_hsv_image,std::vector<int> lowerBounds, std::vector<int> upperBounds, const int MAX_CONTOURS, bool inverted = false) {
 	cv::inRange(working_hsv_image, lowerBounds, upperBounds, working_hsv_image);
-	cv::bitwise_not(working_hsv_image, working_hsv_image);
-
-	//find and draw contours
+	if (inverted) {cv::bitwise_not(working_hsv_image, working_hsv_image);}
+	//find contours
 	std::vector<std::vector<cv::Point>> contours;
 	cv::findContours(working_hsv_image, contours, CV_RETR_EXTERNAL, CV_CHAIN_APPROX_NONE);
-	if (num_showed_contours > 0) {
-		for (unsigned int i = 0; i < contours.size(); i++) {
-			cv::drawContours(displayed_image, contours, i, green);
-		}
-	}
 
 	// sort contours ascending by area https://stackoverflow.com/questions/13495207/opencv-c-sorting-contours-by-their-contourarea
 	std::sort(contours.begin(), contours.end(), compareContourAreas);
 
-	//display longest contours
-	for (unsigned short i = contours.size() - 1; i > (contours.size() - 1 - num_showed_contours); i--) {
-		//	cv::drawContours(img, contours, i, red);
-		cv::rectangle(displayed_image, cv::boundingRect(contours[i]), red, 10);
+	for (int i = contours.size() - 1; i > std::max(((int) contours.size() - 1 - MAX_CONTOURS), 0); i--) {
+		rects.push_back(cv::boundingRect(contours[i]));
+	}
+}
+
+void getRectsByThresholding(std::vector<cv::Rect>& rects, Mat& working_hsv_image, cv::Scalar lowerBounds, cv::Scalar upperBounds, const int MAX_CONTOURS, bool inverted = false) {
+	cv::inRange(working_hsv_image, lowerBounds, upperBounds, working_hsv_image);
+	if (inverted) {cv::bitwise_not(working_hsv_image, working_hsv_image);}
+	//find contours
+	std::vector<std::vector<cv::Point>> contours;
+	cv::findContours(working_hsv_image, contours, CV_RETR_EXTERNAL, CV_CHAIN_APPROX_NONE);
+
+	// sort contours ascending by area https://stackoverflow.com/questions/13495207/opencv-c-sorting-contours-by-their-contourarea
+	std::sort(contours.begin(), contours.end(), compareContourAreas);
+
+	for (int i = contours.size() - 1; i > std::max(((int) contours.size() - 1 - MAX_CONTOURS), 0); i--) {
+		rects.push_back(cv::boundingRect(contours[i]));
+	}
+}
+
+Mat contourDetection2(Mat img) {
+	cv::Scalar red = cv::Scalar(0, 0, 255);
+	cv::Scalar green = cv::Scalar(0, 255, 0);
+	cv::Scalar blue = cv::Scalar(255, 0, 0);
+	Mat working_hsv_image;
+	Mat displayed_image;
+	img.copyTo(displayed_image);
+	cv::cvtColor(img, working_hsv_image, CV_BGR2HSV);
+	std::vector<int> lowerBounds = {water_min_hue, 0, 0};
+	std::vector<int> upperBounds = {water_max_hue, 255, 255};
+
+	//detect contours
+	std::vector<cv::Rect> rects;
+	getRectsByThresholding(rects, working_hsv_image, lowerBounds, upperBounds, 100, true);
+	std::cout << "Num rects: " << rects.size() << std::endl;
+
+	//merge overlapping rects
+	cv::Mat working_image_2 = Mat(working_hsv_image.rows, working_hsv_image.cols, CV_8UC3, cv::Scalar(0,0,0));
+	for (unsigned int i = 0; i < rects.size(); i++) {
+		cv::rectangle(working_image_2, rects[i], red, 10);
+	}
+	std::vector<cv::Rect> rects2;
+	getRectsByThresholding(rects2, working_image_2, red, red, 100, false);
+	std::cout << "Num rects: " << rects2.size() << std::endl;
+
+	//cut frame for largest contour
+	if (display_cutten_frame) {
+		Rect rect = rects2[0];
+		rect.x = std::max((int)(rect.x - rect.width * 0.5), 0);
+		rect.y = std::max((int)(rect.y - rect. height * 0.5), 0);
+		rect.width = std::min(rect.width * 2, displayed_image.cols - rect.x);
+		rect.height = std::min(rect.height * 2, displayed_image.rows - rect.y);
+		Mat rectContent(displayed_image, rect);
+		Mat cuttenFrame;
+		rectContent.copyTo(cuttenFrame);
+		imshow(CUTTEN_FRAME_WINDOW_NAME, cuttenFrame);
+
+		cv::rectangle(displayed_image, rect, Scalar(0, 255, 255), 3);
+	} else {
+		cv::destroyWindow(CUTTEN_FRAME_WINDOW_NAME);
 	}
 
-	cout << "number of contours " << contours.size() << endl;
+	//display largest rects
+	for (int i = 0; i < std::min(num_showed_contours, (int) rects2.size()); i++) {
+		cv::rectangle(displayed_image, rects2[i], green, 10);
+	}
 	imshow(DEBUG_WINDOW_NAME, working_hsv_image);
+
 	return displayed_image;
 }
 
 void update() {
-	cv::imshow(WINDOW_NAME, contourDetection(global_image));
+	cv::imshow(WINDOW_NAME, contourDetection2(global_image));
 	cout << "updated" << endl;
-}
-
-void sliderCallback(int value, void*) {
-//	update();
 }
 
 int main(int argc, char *argv[])
@@ -104,6 +152,9 @@ int main(int argc, char *argv[])
 		getFiles(QString().fromStdString(image_path), images, videos);
 		cv::namedWindow(WINDOW_NAME, cv::WINDOW_NORMAL);
 		cv::namedWindow(DEBUG_WINDOW_NAME, cv::WINDOW_NORMAL);
+		cv::namedWindow(CUTTEN_FRAME_WINDOW_NAME, cv::WINDOW_NORMAL);
+		cv::createTrackbar("water min hue", DEBUG_WINDOW_NAME, &water_min_hue, 179);
+		cv::createTrackbar("water max hue", DEBUG_WINDOW_NAME, &water_max_hue, 179);
 
 		unsigned int i = 0;
 		global_image = cv::imread(images[i].toStdString()); //options like cv::IMREAD_GRAYSCALE possible
@@ -114,7 +165,6 @@ int main(int argc, char *argv[])
 			switch (keyPressed) {
 				case 27: return 0; //ESC
 				case 119: //w
-				case 97: //a
 				case 82: //up
 					if (i > 0) {i--;}
 					global_image = cv::imread(images[i].toStdString()); //options like cv::IMREAD_GRAYSCALE possible
@@ -122,7 +172,6 @@ int main(int argc, char *argv[])
 					update();
 					break;
 				case 115: //s
-				case 100: //d
 				case 84: //down
 					if (i < (images.size() - 1)) {i++;}
 					global_image = cv::imread(images[i].toStdString()); //options like cv::IMREAD_GRAYSCALE possible
@@ -135,7 +184,7 @@ int main(int argc, char *argv[])
 				case 117: //u
 					update();
 					break;
-				case 48: num_showed_contours = 0; update(); break; //0, to clear all drawin info and only show original image
+				case 48: num_showed_contours = 0; update(); break; //0, to clear all additional drawing and only show original image
 				case 49: num_showed_contours = 1; update(); break; //1
 				case 50: num_showed_contours = 2; update(); break; //2
 				case 51: num_showed_contours = 3; update(); break; //3
@@ -145,6 +194,12 @@ int main(int argc, char *argv[])
 				case 55: num_showed_contours = 7; update(); break; //7
 				case 56: num_showed_contours = 8; update(); break; //8
 				case 57: num_showed_contours = 9; update(); break; //9
+				case 100: num_showed_contours = 100; update(); break; //100
+				case 97: num_showed_contours = 1000; update(); break; //all!!
+				case 99: //c
+					display_cutten_frame = !display_cutten_frame;
+					update();
+					break;
 				default:
 					cout << keyPressed << endl;
 			}
