@@ -31,9 +31,9 @@ const string DEBUG_WINDOW_NAME = "Thresholded Image";
 const string CUTTEN_FRAME_WINDOW_NAME = "Cutten Frame";
 cv::Mat global_image;
 int num_showed_contours = 100;
+//pure blue color is hsv 240° -> here 120
 int water_min_hue = 90;
-int water_max_hue = 130;
-bool display_cutten_frame = true;
+int water_max_hue = 150; //130 was good too
 
 void getFiles(QString path, std::vector<QString> &images, std::vector<QString> &videos) { //!!! Hard string comparison with jpg, jpeg and mp4 !!!
 	QDirIterator iterator(path, QDirIterator::Subdirectories);
@@ -110,7 +110,7 @@ Mat contourDetection2(Mat img) {
 	std::cout << "Num rects: " << rects2.size() << std::endl;
 
 	//cut frame for largest contour
-	if (display_cutten_frame) {
+	if (rects.size() > 0) {
 		Rect rect = rects2[0];
 		rect.x = std::max((int)(rect.x - rect.width * 0.5), 0);
 		rect.y = std::max((int)(rect.y - rect. height * 0.5), 0);
@@ -123,7 +123,10 @@ Mat contourDetection2(Mat img) {
 
 		cv::rectangle(displayed_image, rect, Scalar(0, 255, 255), 3);
 	} else {
-		cv::destroyWindow(CUTTEN_FRAME_WINDOW_NAME);
+		//display black screen
+		cv::Mat na_image = Mat(50, 50, CV_8UC3, cv::Scalar(0,0,0));
+		cv::putText(na_image, "N/A", cv::Point(10, 30), 1, CV_FONT_HERSHEY_PLAIN , cv::Scalar(255, 255, 255));
+		cv::imshow(CUTTEN_FRAME_WINDOW_NAME, na_image);
 	}
 
 	//display largest rects
@@ -196,10 +199,6 @@ int main(int argc, char *argv[])
 				case 57: num_showed_contours = 9; update(); break; //9
 				case 100: num_showed_contours = 100; update(); break; //100
 				case 97: num_showed_contours = 1000; update(); break; //all!!
-				case 99: //c
-					display_cutten_frame = !display_cutten_frame;
-					update();
-					break;
 				default:
 					cout << keyPressed << endl;
 			}
