@@ -11,6 +11,8 @@ using namespace cv;
  * cut pictures in rectangles out and save them with an ID. For Videos: all cutten frames shall have same size and will be recombined in a video
  * (optional: use video to get a very good image)
  *
+ * Test false-positives
+ * maybe try canny edge detector
  * https://stackoverflow.com/questions/44633740/opencv-simple-blob-detection-getting-some-undetected-blobs
  *
 */
@@ -24,16 +26,21 @@ using namespace cv;
  * -> done by merging overlapping rects, but could be improved (merging overlapping rects after merging overlapping rects???)
  * when sea is very reflective, no ships are detected
  * two nearby ships are merged together - wanted or not wanted? - I think this is ok since the images are used to be shown to humans to decide whether these need to be saved or not and not for ship counting
+ * merging rects somehow deletes some rects!!!
 */
 
 const string WINDOW_NAME = "Contour Detection";
 const string DEBUG_WINDOW_NAME = "Thresholded Image";
 const string CUTTEN_FRAME_WINDOW_NAME = "Cutten Frame";
+const bool SHOW_INITIAL_RECTS = true;
+int pen_size = 10; //make it dependant from image resolution?!
 cv::Mat global_image;
 int num_showed_contours = 100;
 //pure blue color is hsv 240° -> here 120
 int water_min_hue = 90;
 int water_max_hue = 150; //130 was good too
+const int numDebugWindows = 3;
+string debugWindows[numDebugWindows];
 
 void getFiles(QString path, std::vector<QString> &images, std::vector<QString> &videos) { //!!! Hard string comparison with jpg, jpeg, png and mp4 !!!
 	QDirIterator iterator(path, QDirIterator::Subdirectories);
@@ -88,6 +95,7 @@ Mat contourDetection2(Mat img) {
 	cv::Scalar red = cv::Scalar(0, 0, 255);
 	cv::Scalar green = cv::Scalar(0, 255, 0);
 	cv::Scalar blue = cv::Scalar(255, 0, 0);
+	cv::Scalar white = cv::Scalar(255, 255, 255);
 	Mat working_hsv_image;
 	Mat displayed_image;
 	img.copyTo(displayed_image);
@@ -99,19 +107,42 @@ Mat contourDetection2(Mat img) {
 	std::vector<cv::Rect> rects;
 	getRectsByThresholding(rects, working_hsv_image, lowerBounds, upperBounds, 100, true);
 	std::cout << "Num rects: " << rects.size() << std::endl;
+	imshow(DEBUG_WINDOW_NAME, working_hsv_image);
+
+	//return if no contours were found
+	if (rects.size() == 0) {return displayed_image;}
 
 	//merge overlapping rects
 	cv::Mat working_image_2 = Mat(working_hsv_image.rows, working_hsv_image.cols, CV_8UC3, cv::Scalar(0,0,0));
 	for (unsigned int i = 0; i < rects.size(); i++) {
-		cv::rectangle(working_image_2, rects[i], red, 10);
+		cv::rectangle(working_image_2, rects[i], red, pen_size);
 	}
 	std::vector<cv::Rect> rects2;
 	getRectsByThresholding(rects2, working_image_2, red, red, 100, false);
-	std::cout << "Num rects: " << rects2.size() << std::endl;
+	std::cout << "Num rects (Merge1): " << rects2.size() << std::endl;
+	imshow(debugWindows[0], working_image_2);
+
+	//merge overlapping rects2
+	cv::Mat working_image_3 = Mat(working_hsv_image.rows, working_hsv_image.cols, CV_8UC3, cv::Scalar(0,0,0));
+	for (unsigned int i = 0; i < rects2.size(); i++) {
+		cv::rectangle(working_image_3, rects2[i], red, pen_size);
+	}
+	std::vector<cv::Rect> rects3;
+	getRectsByThresholding(rects3, working_image_3, red, red, 100, false);
+	std::cout << "Num rects (Merge2): " << rects3.size() << std::endl;
+	imshow(debugWindows[1], working_image_3);
+
+	//show final merged rects in debug window
+	cv::Mat working_image_4 = Mat(working_hsv_image.rows, working_hsv_image.cols, CV_8UC3, cv::Scalar(0,0,0));
+	for (unsigned int i = 0; i < rects3.size(); i++) {
+		cv::rectangle(working_image_4, rects3[i], white, pen_size);
+	}
+	imshow(debugWindows[2], working_image_4);
+
 
 	//cut frame for largest contour
-	if (rects.size() > 0) {
-		Rect rect = rects2[0];
+	if (rects3.size() > 0) {
+		Rect rect = rects3[0];
 		rect.x = std::max((int)(rect.x - rect.width * 0.5), 0);
 		rect.y = std::max((int)(rect.y - rect. height * 0.5), 0);
 		rect.width = std::min(rect.width * 2, displayed_image.cols - rect.x);
@@ -121,7 +152,7 @@ Mat contourDetection2(Mat img) {
 		rectContent.copyTo(cuttenFrame);
 		imshow(CUTTEN_FRAME_WINDOW_NAME, cuttenFrame);
 
-		cv::rectangle(displayed_image, rect, Scalar(0, 255, 255), 3);
+		cv::rectangle(displayed_image, rect, Scalar(0, 255, 255), pen_size);
 	} else {
 		//display black screen
 		cv::Mat na_image = Mat(50, 50, CV_8UC3, cv::Scalar(0,0,0));
@@ -130,10 +161,17 @@ Mat contourDetection2(Mat img) {
 	}
 
 	//display largest rects
-	for (int i = 0; i < std::min(num_showed_contours, (int) rects2.size()); i++) {
-		cv::rectangle(displayed_image, rects2[i], green, 10);
+	if (SHOW_INITIAL_RECTS) {
+		for (int i = 0; i < std::min(num_showed_contours, (int) rects.size()); i++) {
+			cv::rectangle(displayed_image, rects[i], red, pen_size);
+		}
+		for (int i = 0; i < std::min(num_showed_contours, (int) rects2.size()); i++) {
+			cv::rectangle(displayed_image, rects2[i], blue, pen_size);
+		}
 	}
-	imshow(DEBUG_WINDOW_NAME, working_hsv_image);
+	for (int i = 0; i < std::min(num_showed_contours, (int) rects3.size()); i++) {
+		cv::rectangle(displayed_image, rects3[i], green, pen_size);
+	}
 
 	return displayed_image;
 }
@@ -158,7 +196,10 @@ int main(int argc, char *argv[])
 		cv::namedWindow(CUTTEN_FRAME_WINDOW_NAME, cv::WINDOW_NORMAL);
 		cv::createTrackbar("water min hue", DEBUG_WINDOW_NAME, &water_min_hue, 179);
 		cv::createTrackbar("water max hue", DEBUG_WINDOW_NAME, &water_max_hue, 179);
-
+		for (int i = 0; i < numDebugWindows; i++) {
+			debugWindows[i] = "Debug Window " + to_string(i);
+			cv::namedWindow(debugWindows[i], cv::WINDOW_NORMAL);
+		}
 		unsigned int i = 0;
 		global_image = cv::imread(images[i].toStdString()); //options like cv::IMREAD_GRAYSCALE possible
 		cout << images[i].toStdString() << endl;
