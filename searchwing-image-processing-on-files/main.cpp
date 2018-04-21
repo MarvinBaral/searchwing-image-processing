@@ -35,11 +35,11 @@ int num_showed_contours = 100;
 int water_min_hue = 90;
 int water_max_hue = 150; //130 was good too
 
-void getFiles(QString path, std::vector<QString> &images, std::vector<QString> &videos) { //!!! Hard string comparison with jpg, jpeg and mp4 !!!
+void getFiles(QString path, std::vector<QString> &images, std::vector<QString> &videos) { //!!! Hard string comparison with jpg, jpeg, png and mp4 !!!
 	QDirIterator iterator(path, QDirIterator::Subdirectories);
 	while (iterator.hasNext()) {
 		QFile file(iterator.next());
-		if (file.fileName().endsWith(".jpg", Qt::CaseInsensitive) || file.fileName().endsWith(".jpeg", Qt::CaseInsensitive)) {
+		if (file.fileName().endsWith(".jpg", Qt::CaseInsensitive) || file.fileName().endsWith(".jpeg", Qt::CaseInsensitive) || file.fileName().endsWith(".png", Qt::CaseInsensitive)) {
 			images.push_back(file.fileName());
 		} else if (file.fileName().endsWith(".mp4", Qt::CaseInsensitive)) {
 			videos.push_back(file.fileName());
